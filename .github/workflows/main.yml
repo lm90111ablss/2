@@ -1,56 +1,52 @@
-name: Run Ubuntu RDP Desktop
+name: Ubuntu XFCE Webtop
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-rdp:
+  webtop:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Start Docker Container
+      - name: Start Webtop
         run: |
-          docker run -d \
-            --name rdp \
-            --platform=linux/amd64 \
-            -p 6080:6080 \
-            --restart unless-stopped \
-            infinite8labs/ubuntu-desktop:latest
+          cat > docker-compose.yml <<'EOF'
+          services:
+            ubuntu-desktop:
+              image: lscr.io/linuxserver/webtop:ubuntu-xfce
+              container_name: ubuntu_gui
+              ports:
+                - "6080:3000"
+          EOF
 
-      - name: Install Google Chrome inside Container
-        run: |
-          docker exec -u 0 rdp bash -c "
-            apt update && \
-            apt install -y wget && \
-            apt purge --auto-remove chromium chromium-browser -y && \
-            rm -rf ~/.config/chromium ~/.cache/chromium && \
-            wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-            apt install -y ./google-chrome-stable_current_amd64.deb && \
-            rm -rf google-chrome-stable_current_amd64.deb && \
-            apt install -f -y
-          "
+          docker compose up -d
 
-      - name: Configure Chrome Launcher Flags
+      - name: Install Google Chrome in Webtop
         run: |
-          docker exec -u 0 rdp bash -c "
-            sed -i 's|/usr/bin/google-chrome-stable %U|/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g' /usr/share/applications/google-chrome.desktop
-          "
+          sleep 20
+          docker exec ubuntu_gui bash -lc 'sudo apt update && sudo apt install -y wget && sudo apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb && rm -rf google-chrome-stable_current_amd64.deb && sudo apt install -f -y'
+          docker exec ubuntu_gui bash -lc 'sudo sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
 
-      - name: Expose Port 6080 via Cloudflare Tunnel
+      - name: Install Cloudflared
         run: |
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
-          rm cloudflared-linux-amd64.deb
-          cloudflared tunnel --url http://localhost:6080 > cloudflared.log 2>&1 &
-          sleep 8
-          echo "=== PUBLIC ACCESS LINK ==="
-          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' cloudflared.log | head -n 1
-          echo "=========================="
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -O cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-      - name: Keep Workflow Running
+      - name: Create Webtop Public Link
         run: |
-          echo "RDP Desktop sedang berjalan..."
-          sleep 21600
+          nohup cloudflared tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
+          sleep 10
+
+          echo "=============================="
+          echo "WEBTOP PUBLIC LINK:"
+          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' tunnel.log || true
+          echo "=============================="
+
+      - name: Keep Webtop Running
+        run: |
+          echo "Webtop masih berjalan..."
+          while true; do
+            sleep 21600
+          done
