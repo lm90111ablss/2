@@ -21,8 +21,6 @@ jobs:
                 - PUID=1000
                 - PGID=1000
                 - TZ=Asia/Jakarta
-                - PASSWD=mypasswd
-                - SELKIES_ENABLE_HTTPS=false
               shm_size: 1gb
               stdin_open: true
               tty: true
