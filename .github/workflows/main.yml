@@ -13,7 +13,7 @@ jobs:
           cat > docker-compose.yml <<'EOF'
           services:
             selkies-desktop:
-              image: ghcr.io/selkies-project/selkies/desktop:v2.2.0-debian12
+              image: ghcr.io/selkies-project/selkies/desktop:latest-debiantrixie
               container_name: selkies_gui
               ports:
                 - "8080:8080"
@@ -56,7 +56,7 @@ jobs:
 
       - name: Keep Selkies Running
         run: |
-          echo "Selkies RDP v2.2.0 (Debian) sedang berjalan..."
+          echo "Selkies RDP (Debian) sedang berjalan..."
           while true; do
             sleep 21600
           done
