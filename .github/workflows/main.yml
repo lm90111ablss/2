@@ -1,60 +1,75 @@
-name: Selkies
+
+name: Debian Linux RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  selkies:
-    runs-on: ubuntu-latest
+  debian-rdp:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     steps:
-      - name: Start Selkies RDP
+      - name: Update System
         run: |
-          cat > docker-compose.yml <<'EOF'
-          services:
-            selkies-desktop:
-              image: ghcr.io/selkies-project/selkies/desktop:latest-debiantrixie
-              container_name: selkies_gui
-              ports:
-                - "6080:3000"
-              environment:
-                - PUID=1000
-                - PGID=1000
-                - TZ=Asia/Jakarta
-              shm_size: 1gb
-              stdin_open: true
-              tty: true
-              restart: unless-stopped
-          EOF
+          sudo apt update
+          sudo apt upgrade -y
 
-          docker compose up -d
-
-      - name: Install Google Chrome in Selkies
+      - name: Install XFCE and XRDP
         run: |
-          sleep 25
-          docker exec -u 0 selkies_gui bash -lc 'apt update && apt install -y wget && apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
-          docker exec -u 0 selkies_gui bash -lc 'sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
+          sudo DEBIAN_FRONTEND=noninteractive apt install -y \
+            xfce4 \
+            xfce4-goodies \
+            xrdp \
+            dbus-x11 \
+            xorgxrdp
 
-      - name: Install Cloudflared
+      - name: Configure XRDP
         run: |
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-            -O cloudflared
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/
+          echo "startxfce4" > ~/.xsession
+          sudo adduser xrdp ssl-cert
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
 
-      - name: Create Selkies Public Link
+      - name: Install Google Chrome
         run: |
-          nohup cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
-          sleep 12
+          sudo apt update
+          sudo apt install wget -y
 
-          echo "=============================="
-          echo "SELKIES PUBLIC LINK:"
-          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' tunnel.log || true
-          echo "=============================="
+          sudo apt purge --auto-remove -y chromium chromium-browser || true
 
-      - name: Keep Selkies Running
+          rm -rf ~/.config/chromium ~/.cache/chromium
+
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+          sudo apt install ./google-chrome-stable_current_amd64.deb -y
+
+          sudo apt install -f -y
+
+          rm -f google-chrome-stable_current_amd64.deb
+
+      - name: Edit Chrome Launcher Properties
         run: |
-          echo "Selkies RDP (Debian) sedang berjalan..."
-          while true; do
-            sleep 21600
-          done
+          mkdir -p ~/.local/share/applications
+
+          cp /usr/share/applications/google-chrome.desktop \
+             ~/.local/share/applications/google-chrome.desktop
+
+          sed -i '/^Exec=/s|/usr/bin/google-chrome-stable|/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage|' \
+             ~/.local/share/applications/google-chrome.desktop
+
+          update-desktop-database ~/.local/share/applications || true
+
+      - name: Verify Installation
+        run: |
+          google-chrome-stable --version
+          systemctl status xrdp --no-pager
+          echo "Chrome Launcher Properties:"
+          grep '^Exec=' ~/.local/share/applications/google-chrome.desktop
+
+      - name: Environment Information
+        run: |
+          echo "Desktop: XFCE"
+          echo "RDP: XRDP"
+          echo "RDP Port: 3389"
+          echo "Browser: Google Chrome"
