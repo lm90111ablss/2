@@ -1,31 +1,34 @@
-name: Ubuntu XFCE Webtop
+name: Selkies Linux RDP v2.2.0 (Debian)
 
 on:
   workflow_dispatch:
 
 jobs:
-  webtop:
+  selkies:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Start Webtop
+      - name: Start Selkies RDP
         run: |
           cat > docker-compose.yml <<'EOF'
           services:
-            ubuntu-desktop:
-              image: lscr.io/linuxserver/webtop:ubuntu-xfce
-              container_name: ubuntu_gui
+            selkies-desktop:
+              image: ghcr.io/selkies-project/selkies/desktop:v2.2.0-debian12
+              container_name: selkies_gui
               ports:
-                - "6080:3000"
+                - "8080:8080"
+              environment:
+                - PASSWD=mypasswd
+                - SELKIES_ENABLE_HTTPS=false
           EOF
 
           docker compose up -d
 
-      - name: Install Google Chrome in Webtop
+      - name: Install Google Chrome in Selkies
         run: |
           sleep 20
-          docker exec ubuntu_gui bash -lc 'sudo apt update && sudo apt install -y wget && sudo apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb && rm -rf google-chrome-stable_current_amd64.deb && sudo apt install -f -y'
-          docker exec ubuntu_gui bash -lc 'sudo sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
+          docker exec selkies_gui bash -lc 'sudo apt update && sudo apt install -y wget && sudo apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb && sudo apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
+          docker exec selkies_gui bash -lc 'sudo sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
 
       - name: Install Cloudflared
         run: |
@@ -34,19 +37,19 @@ jobs:
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
 
-      - name: Create Webtop Public Link
+      - name: Create Selkies Public Link
         run: |
-          nohup cloudflared tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
+          nohup cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
           sleep 10
 
           echo "=============================="
-          echo "WEBTOP PUBLIC LINK:"
+          echo "SELKIES PUBLIC LINK:"
           grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' tunnel.log || true
           echo "=============================="
 
-      - name: Keep Webtop Running
+      - name: Keep Selkies Running
         run: |
-          echo "Webtop masih berjalan..."
+          echo "Selkies RDP v2.2.0 (Debian) sedang berjalan..."
           while true; do
             sleep 21600
           done
