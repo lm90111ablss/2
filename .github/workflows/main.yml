@@ -16,7 +16,7 @@ jobs:
               image: ghcr.io/selkies-project/selkies/desktop:v2.2.0-debian12
               container_name: selkies_gui
               ports:
-                - "8080:8080"
+                - "6080:3000"
               environment:
                 - PUID=1000
                 - PGID=1000
