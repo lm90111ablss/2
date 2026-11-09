@@ -18,8 +18,15 @@ jobs:
               ports:
                 - "8080:8080"
               environment:
+                - PUID=1000
+                - PGID=1000
+                - TZ=Asia/Jakarta
                 - PASSWD=mypasswd
                 - SELKIES_ENABLE_HTTPS=false
+              shm_size: 1gb
+              stdin_open: true
+              tty: true
+              restart: unless-stopped
           EOF
 
           docker compose up -d
@@ -27,8 +34,8 @@ jobs:
       - name: Install Google Chrome in Selkies
         run: |
           sleep 20
-          docker exec selkies_gui bash -lc 'sudo apt update && sudo apt install -y wget && sudo apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb && sudo apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
-          docker exec selkies_gui bash -lc 'sudo sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
+          docker exec selkies_gui bash -lc 'apt update && apt install -y wget && apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
+          docker exec selkies_gui bash -lc 'sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
 
       - name: Install Cloudflared
         run: |
