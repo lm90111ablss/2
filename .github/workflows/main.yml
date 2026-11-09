@@ -1,4 +1,4 @@
-name: Selkies Linux RDP v2.2.0 (Debian)
+name: Selkies
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
               image: ghcr.io/selkies-project/selkies/desktop:v2.2.0-debian12
               container_name: selkies_gui
               ports:
-                - "6080:3000"
+                - "8080:8080"
               environment:
                 - PUID=1000
                 - PGID=1000
@@ -33,9 +33,9 @@ jobs:
 
       - name: Install Google Chrome in Selkies
         run: |
-          sleep 20
-          docker exec selkies_gui bash -lc 'apt update && apt install -y wget && apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
-          docker exec selkies_gui bash -lc 'sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
+          sleep 25
+          docker exec -u 0 selkies_gui bash -lc 'apt update && apt install -y wget && apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && apt install -f -y && rm -rf google-chrome-stable_current_amd64.deb'
+          docker exec -u 0 selkies_gui bash -lc 'sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
 
       - name: Install Cloudflared
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: Create Selkies Public Link
         run: |
           nohup cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
-          sleep 10
+          sleep 12
 
           echo "=============================="
           echo "SELKIES PUBLIC LINK:"
