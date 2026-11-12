@@ -1,75 +1,102 @@
-
-name: Debian Linux RDP
+name: Persistent Web Desktop & Chrome
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Jalankan manual lewat tab Actions
 
 jobs:
-  debian-rdp:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 360
+  run-desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350 # Maksimal waktu jalan (sekitar 5.8 jam)
 
     steps:
-      - name: Update System
-        run: |
-          sudo apt update
-          sudo apt upgrade -y
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Install XFCE and XRDP
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt install -y \
-            xfce4 \
-            xfce4-goodies \
-            xrdp \
-            dbus-x11 \
-            xorgxrdp
+      # 1. Memulihkan data lama agar tidak terhapus saat dijalankan ulang
+      - name: Restore Data Pengguna (Cache)
+        id: cache-data
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/persistent-data
+          key: desktop-data-${{ github.run_id }}
+          restore-keys: |
+            desktop-data-
 
-      - name: Configure XRDP
+      # 2. Menyiapkan folder penyimpanan permanen & symlink
+      - name: Setup Folder Penyimpanan
         run: |
+          mkdir -p /home/runner/persistent-data/chrome-config
+          mkdir -p /home/runner/persistent-data/Desktop
+          mkdir -p /home/runner/persistent-data/Downloads
+          
+          # Hubungkan folder sistem ke folder cache
+          mkdir -p ~/.config
+          ln -sfn /home/runner/persistent-data/chrome-config ~/.config/google-chrome
+          ln -sfn /home/runner/persistent-data/Desktop ~/Desktop
+          ln -sfn /home/runner/persistent-data/Downloads ~/Downloads
+
+      # 3. Install XFCE, XRDP, QEMU, noVNC, dan Tools Pendukung
+      - name: Install Desktop Environment & Web VNC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system cloud-image-utils wget lsof xfce4 xfce4-goodies xrdp novnc websockify tightvncserver dbus-x11
           echo "startxfce4" > ~/.xsession
-          sudo adduser xrdp ssl-cert
+          sudo chown $(whoami):$(whoami) ~/.xsession
           sudo systemctl enable xrdp
-          sudo systemctl start xrdp
+          sudo systemctl restart xrdp
 
-      - name: Install Google Chrome
+      # 4. Hapus Chromium & Install Google Chrome Stabil
+      - name: Install Google Chrome & Edit Launcher
         run: |
-          sudo apt update
-          sudo apt install wget -y
-
-          sudo apt purge --auto-remove -y chromium chromium-browser || true
-
+          sudo apt-get purge --auto-remove -y chromium chromium-browser || true
           rm -rf ~/.config/chromium ~/.cache/chromium
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+          sudo apt-get install -f -y
+          rm -rf google-chrome-stable_current_amd64.deb
 
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          # Modifikasi properti launcher Chrome
+          sudo sed -i 's|Exec=/usr/bin/google-chrome-stable %U|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g' /usr/share/applications/google-chrome.desktop
+          sudo sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage|g' /usr/share/applications/google-chrome.desktop
 
-          sudo apt install ./google-chrome-stable_current_amd64.deb -y
+          # Buat shortcut di Desktop agar mudah diklik
+          cp /usr/share/applications/google-chrome.desktop ~/Desktop/
+          chmod +x ~/Desktop/google-chrome.desktop
 
-          sudo apt install -f -y
-
-          rm -f google-chrome-stable_current_amd64.deb
-
-      - name: Edit Chrome Launcher Properties
+      # 5. Jalankan VNC Server & noVNC Web Access
+      - name: Start Web Desktop & Cloudflare Tunnel
         run: |
-          mkdir -p ~/.local/share/applications
+          # Set password VNC default: 123456
+          mkdir -p ~/.vnc
+          echo "123456" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
 
-          cp /usr/share/applications/google-chrome.desktop \
-             ~/.local/share/applications/google-chrome.desktop
+          # Jalankan VNC Server di layar :1 (Resolusi 1366x768)
+          vncserver :1 -geometry 1366x768 -depth 24
 
-          sed -i '/^Exec=/s|/usr/bin/google-chrome-stable|/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage|' \
-             ~/.local/share/applications/google-chrome.desktop
+          # Jalankan noVNC di port 6080
+          websockify -D --web=/usr/share/novnc/ 6080 localhost:5901
 
-          update-desktop-database ~/.local/share/applications || true
+          # Download dan jalankan Cloudflare Tunnel untuk akses Web publik
+          wget -q https://github.com
+          chmod +x cloudflared-linux-amd64
+          ./cloudflared-linux-amd64 tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
+          
+          sleep 8
+          echo "=========================================================="
+          echo "AKSES WEB DESKTOP ANDA DI LINK BERIKUT (Tambahkan /vnc.html di akhir URL):"
+          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' tunnel.log | head -n 1 | awk '{print $1"/vnc.html"}'
+          echo "Password VNC: 123456"
+          echo "=========================================================="
 
-      - name: Verify Installation
-        run: |
-          google-chrome-stable --version
-          systemctl status xrdp --no-pager
-          echo "Chrome Launcher Properties:"
-          grep '^Exec=' ~/.local/share/applications/google-chrome.desktop
+          # Tahan workflow agar tetap berjalan (maksimal ~5 jam)
+          # Jika ingin menyimpan data sebelum waktu habis, cukup Cancel workflow dari tab Actions
+          sleep 18000
 
-      - name: Environment Information
-        run: |
-          echo "Desktop: XFCE"
-          echo "RDP: XRDP"
-          echo "RDP Port: 3389"
-          echo "Browser: Google Chrome"
+      # 6. Simpan kembali semua data meskipun workflow di-Cancel secara manual
+      - name: Simpan Data Pengguna (Cache)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/persistent-data
+          key: desktop-data-${{ github.run_id }}
