@@ -1,123 +1,69 @@
-name: Webtop Debian XFCE & Chrome Remote Desktop
+name: Debian XFCE Webtop Persistent
 
 on:
-  workflow_dispatch: # Jalankan manual lewat tab Actions
+  workflow_dispatch:
 
 jobs:
-  run-webtop:
+  webtop:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # Maksimal ~5.8 jam
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # 1. Memulihkan data lama (/config) agar tidak terhapus saat run ulang
-      - name: Restore Data Webtop (Cache)
-        id: cache-webtop
+      - name: Cache Webtop Data
         uses: actions/cache@v4
         with:
-          path: /home/runner/webtop-config
+          path: webtop_data
           key: webtop-data-${{ github.run_id }}
           restore-keys: |
             webtop-data-
 
-      # 2. Menyiapkan folder volume dan hak akses PUID/PGID 1000
-      - name: Setup Folder Volume
-        run: |
-          mkdir -p /home/runner/webtop-config
-          sudo chown -R 1000:1000 /home/runner/webtop-config
+      - name: Create Data Directory
+        run: mkdir -p webtop_data
 
-      # 3. Membuat docker-compose.yml dengan volume permanen & menjalankan kontainer
-      - name: Start Webtop Container
+      - name: Start Webtop
         run: |
-          cat << 'EOF' > docker-compose.yml
+          cat > docker-compose.yml <<'EOF'
           services:
             debian-desktop:
               image: lscr.io/linuxserver/webtop:debian-xfce
               container_name: debian_gui
               ports:
-                - '6080:3000'
+                - "6080:3000"
               environment:
                 - PUID=1000
                 - PGID=1000
                 - TZ=Asia/Jakarta
               volumes:
-                - /home/runner/webtop-config:/config
-              ipc: host
+                - ./webtop_data:/config
+              shm_size: 1gb
               stdin_open: true
               tty: true
               restart: unless-stopped
           EOF
-
           sudo docker compose up -d
-          echo "Menunggu kontainer siap..."
-          sleep 15
 
-      # 4. Install Google Chrome, ubah launcher, & siapkan Chrome Remote Desktop di dalam kontainer
-      - name: Install Google Chrome & CRD di Kontainer
+      - name: Install Google Chrome in Webtop
         run: |
-          sudo docker exec -u 0 debian_gui bash -c "
-            apt-get update && \
-            apt-get install -y wget curl sudo dbus-x11 && \
-            apt-get purge --auto-remove -y chromium chromium-browser || true && \
-            rm -rf /config/.config/chromium /config/.cache/chromium && \
-            wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-            apt-get install -y ./google-chrome-stable_current_amd64.deb && \
-            apt-get install -f -y && \
-            rm -rf google-chrome-stable_current_amd64.deb && \
-            
-            # Ubah properti launcher Google Chrome
-            sed -i 's|Exec=/usr/bin/google-chrome-stable %U|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g' /usr/share/applications/google-chrome.desktop && \
-            sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage|g' /usr/share/applications/google-chrome.desktop && \
-            
-            # Install paket Chrome Remote Desktop
-            wget -q https://google.com && \
-            apt-get install -y ./chrome-remote-desktop_current_amd64.deb && \
-            apt-get install -f -y && \
-            rm -rf chrome-remote-desktop_current_amd64.deb && \
-            
-            # Konfigurasi sesi XFCE untuk Chrome Remote Desktop
-            echo 'exec /usr/bin/xfce4-session' > /etc/chrome-remote-desktop-session && \
-            usermod -aG chrome-remote-desktop abc && \
-            mkdir -p /config/.config/chrome-remote-desktop && \
-            chown -R 1000:1000 /config
-          "
+          sleep 20
+          docker exec debian_gui bash -lc 'sudo apt update && sudo apt install -y wget && sudo apt purge --auto-remove -y chromium chromium-browser && rm -rf ~/.config/chromium ~/.cache/chromium && wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb && rm -rf google-chrome-stable_current_amd64.deb && sudo apt install -f -y'
+          docker exec debian_gui bash -lc 'sudo sed -i "s|^Exec=.*|Exec=/usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage %U|g" /usr/share/applications/google-chrome.desktop'
 
-      # 5. Buka akses Web (Port 6080) & instruksi koneksi Chrome Remote Desktop
-      - name: Expose Web Access & Tahan Sesi
+      - name: Install Cloudflared
         run: |
-          wget -q https://github.com
-          chmod +x cloudflared-linux-amd64
-          ./cloudflared-linux-amd64 tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
-          
-          sleep 8
-          echo "=================================================================="
-          echo "1. AKSES WEBtop GUI (Untuk memasukkan perintah SSH Chrome Remote Desktop):"
-          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' tunnel.log | head -n 1
-          echo ""
-          echo "2. CARA MENGHUBUNGKAN CHROME REMOTE DESKTOP:"
-          echo "   - Buka link Webtop di atas."
-          echo "   - Buka aplikasi Terminal di dalam desktop Webtop tersebut."
-          echo "   - Buka https://google.com di browser Anda."
-          echo "   - Salin perintah 'Debian Linux' (DISPLAY= /opt/google/chrome-remote-desktop/start-host...)"
-          echo "   - Tempel dan jalankan di Terminal Webtop, lalu buat PIN 6 digit."
-          echo "=================================================================="
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -O cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
 
-          # Tahan workflow agar terus berjalan (~5 jam)
-          sleep 18000
-
-      # 6. Simpan seluruh data (/config) meskipun workflow di-Cancel manual
-      - name: Simpan Data Webtop (Cache)
-        if: always()
+      - name: Create Webtop Public Link
         run: |
-          # Hentikan kontainer dengan rapi agar semua file & database Chrome tertutup sempurna
-          sudo docker stop debian_gui || true
-          sudo chown -R 1000:1000 /home/runner/webtop-config
+          nohup cloudflared tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
+          sleep 10
+          echo "=============================="
+          echo "WEBTOP PUBLIC LINK:"
+          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' tunnel.log || true
+          echo "=============================="
 
-      - name: Upload Cache Webtop
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: /home/runner/webtop-config
-          key: webtop-data-${{ github.run_id }}
+      - name: Keep Webtop Running (Autosave di 5.5 Jam)
+        run: |
+          echo "Webtop berjalan. Akan otomatis berhenti dalam 5.5 jam untuk menyimpan cache data..."
+          sleep 19800
